@@ -5,10 +5,5 @@
     ],
     "config": {
         "debug-level": 0
-    },
-    "target_overrides": {
-        "*": {
-            "target.features_add": ["COMMON_PAL"]
-        }
     }
 }
