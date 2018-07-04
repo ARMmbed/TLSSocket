@@ -15,38 +15,44 @@
  * limitations under the License.
  */
 
-#include "TLSSocket.h"
+#include "TLSSocketWrapper.h"
 #include "drivers/Timer.h"
 
-#define TRACE_GROUP "TLSx"
+#define TRACE_GROUP "TLSW"
 #include "mbed-trace/mbed_trace.h"
 #include "mbedtls/debug.h"
 
-TLSSocket::TLSSocket(Socket *transport) :
+TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname) :
     _ssl_ca_pem(NULL),
     _ssl_cli_pem(NULL),
     _transport(transport)
 {
     tls_init();
+    mbedtls_ssl_set_hostname(_ssl, hostname);
+    _transport->set_blocking(true);
 }
 
-TLSSocket::~TLSSocket() {
-    tls_free();
+TLSSocketWrapper::~TLSSocketWrapper() {
+    if (_transport) {
+        close();
+    }
 }
 
-void TLSSocket::set_root_ca_cert(const char* root_ca_pem) {
+void TLSSocketWrapper::set_root_ca_cert(const char *root_ca_pem) {
+    // TODO - requires to be static - why not parse now?
     _ssl_ca_pem = root_ca_pem;
 
 }
 
-void TLSSocket::set_client_cert_key(const char* client_cert_pem,
-        const char* client_private_key_pem) {
+void TLSSocketWrapper::set_client_cert_key(const char *client_cert_pem,
+        const char *client_private_key_pem) {
+    // TODO - requires to be static - why not parse now?
     _ssl_cli_pem = client_cert_pem;
     _ssl_pk_pem = client_private_key_pem;
 }
 
 
-nsapi_error_t TLSSocket::start_handshake(const char* hostname) {
+nsapi_error_t TLSSocketWrapper::do_handshake() {
     nsapi_error_t _error = 0;
     const char DRBG_PERS[] = "mbed TLS client";
 
@@ -125,10 +131,7 @@ nsapi_error_t TLSSocket::start_handshake(const char* hostname) {
         return _error;
     }
 
-    mbedtls_ssl_set_hostname(_ssl, hostname);
-
-    mbedtls_ssl_set_bio(_ssl, static_cast<void *>(this),
-                                ssl_send, ssl_recv, NULL );
+    mbedtls_ssl_set_bio(_ssl, this, ssl_send, ssl_recv, NULL );
 
     if(isClientAuth) {
         if((ret = mbedtls_ssl_conf_own_cert(_ssl_conf, _clicert, _pkctx)) != 0) {
@@ -175,7 +178,7 @@ nsapi_error_t TLSSocket::start_handshake(const char* hostname) {
 }
 
 
-nsapi_error_t TLSSocket::send(const void *data, nsapi_size_t size) {
+nsapi_error_t TLSSocketWrapper::send(const void *data, nsapi_size_t size) {
     int ret = 0;
     unsigned int offset = 0;
     do {
@@ -193,13 +196,13 @@ nsapi_error_t TLSSocket::send(const void *data, nsapi_size_t size) {
     return offset;
 }
 
-nsapi_size_or_error_t TLSSocket::sendto(const SocketAddress &, const void *data, nsapi_size_t size)
+nsapi_size_or_error_t TLSSocketWrapper::sendto(const SocketAddress &, const void *data, nsapi_size_t size)
 {
     // Ignore the SocketAddress
     return send(data, size);
 }
 
-nsapi_size_or_error_t TLSSocket::recv(void *data, nsapi_size_t size) {
+nsapi_size_or_error_t TLSSocketWrapper::recv(void *data, nsapi_size_t size) {
     int ret = 0;
     unsigned int offset = 0;
 
@@ -229,13 +232,13 @@ nsapi_size_or_error_t TLSSocket::recv(void *data, nsapi_size_t size) {
     return offset;
 }
 
-nsapi_size_or_error_t TLSSocket::recvfrom(SocketAddress *address, void *data, nsapi_size_t size)
+nsapi_size_or_error_t TLSSocketWrapper::recvfrom(SocketAddress *address, void *data, nsapi_size_t size)
 {
     //TODO: Need Socket::getpeername() to get address
     return recv(data, size);
 }
 
-void TLSSocket::print_mbedtls_error(const char *name, int err) {
+void TLSSocketWrapper::print_mbedtls_error(const char *name, int err) {
     char *buf = new char[128];
     mbedtls_strerror(err, buf, sizeof (buf));
     tr_err("%s() failed: -0x%04x (%d): %s", name, -err, err, buf);
@@ -245,7 +248,7 @@ void TLSSocket::print_mbedtls_error(const char *name, int err) {
 
 #if MBED_CONF_TLS_SOCKET_DEBUG_LEVEL > 0
 
-void TLSSocket::my_debug(void *ctx, int level, const char *file, int line,
+void TLSSocketWrapper::my_debug(void *ctx, int level, const char *file, int line,
                         const char *str)
 {
     const char *p, *basename;
@@ -262,7 +265,7 @@ void TLSSocket::my_debug(void *ctx, int level, const char *file, int line,
 }
 
 
-int TLSSocket::my_verify(void *data, mbedtls_x509_crt *crt, int depth, uint32_t *flags)
+int TLSSocketWrapper::my_verify(void *data, mbedtls_x509_crt *crt, int depth, uint32_t *flags)
 {
     const uint32_t buf_size = 1024;
     char *buf = new char[buf_size];
@@ -288,9 +291,9 @@ int TLSSocket::my_verify(void *data, mbedtls_x509_crt *crt, int depth, uint32_t 
 #endif /* MBED_CONF_TLS_SOCKET_DEBUG_LEVEL > 0 */
 
 
-int TLSSocket::ssl_recv(void *ctx, unsigned char *buf, size_t len) {
+int TLSSocketWrapper::ssl_recv(void *ctx, unsigned char *buf, size_t len) {
     int recv = -1;
-    TLSSocket *my = static_cast<TLSSocket *>(ctx);
+    TLSSocketWrapper *my = static_cast<TLSSocketWrapper *>(ctx);
     recv = my->_transport->recv(buf, len);
 
     if(NSAPI_ERROR_WOULD_BLOCK == recv){
@@ -303,9 +306,9 @@ int TLSSocket::ssl_recv(void *ctx, unsigned char *buf, size_t len) {
     }
 }
 
-int TLSSocket::ssl_send(void *ctx, const unsigned char *buf, size_t len) {
+int TLSSocketWrapper::ssl_send(void *ctx, const unsigned char *buf, size_t len) {
     int size = -1;
-    TLSSocket *me = static_cast<TLSSocket *>(ctx);
+    TLSSocketWrapper *me = static_cast<TLSSocketWrapper *>(ctx);
     size = me->_transport->send(buf, len);
 
     if(NSAPI_ERROR_WOULD_BLOCK == size){
@@ -318,7 +321,7 @@ int TLSSocket::ssl_send(void *ctx, const unsigned char *buf, size_t len) {
     }
 }
 
-void TLSSocket::tls_init() {
+void TLSSocketWrapper::tls_init() {
     _entropy = new mbedtls_entropy_context;
     _ctr_drbg = new mbedtls_ctr_drbg_context;
     _cacert = new mbedtls_x509_crt;
@@ -336,7 +339,7 @@ void TLSSocket::tls_init() {
     mbedtls_pk_init(_pkctx);
 }
 
-void TLSSocket::tls_free() {
+void TLSSocketWrapper::tls_free() {
     mbedtls_entropy_free(_entropy);
     mbedtls_ctr_drbg_free(_ctr_drbg);
     mbedtls_x509_crt_free(_cacert);
@@ -354,49 +357,72 @@ void TLSSocket::tls_free() {
     delete _pkctx;
 }
 
-nsapi_error_t TLSSocket::close()
+nsapi_error_t TLSSocketWrapper::close()
 {
-    //TODO
-    return NSAPI_ERROR_UNSUPPORTED;
+    tr_info("Closing TLS");
+
+    int ret, ret2;
+    do {
+        ret = mbedtls_ssl_close_notify(_ssl);
+    } while (ret != 0 && (ret == MBEDTLS_ERR_SSL_WANT_READ ||
+            ret == MBEDTLS_ERR_SSL_WANT_WRITE));
+    if (ret) {
+        print_mbedtls_error("mbedtls_ssl_handshake", ret);
+    }
+
+    ret2 = _transport->close();
+    if (!ret) {
+        ret = ret2;
+    }
+
+    _transport = NULL;
+
+    tls_free();
+
+    return ret;
 }
 
-nsapi_error_t TLSSocket::connect(const SocketAddress &address)
+nsapi_error_t TLSSocketWrapper::connect(const SocketAddress &address)
 {
-    //TODO: We could initiate the hanshake here, if there would be separate function call to se the target hostname
-    return _transport->connect(address);
+    //TODO: We could initiate the hanshake here, if there would be separate function call to set the target hostname
+    nsapi_error_t ret = _transport->connect(address);
+    if (ret) {
+        return ret;
+    }
+    return do_handshake();
 }
 
-nsapi_error_t TLSSocket::bind(const SocketAddress&)
+nsapi_error_t TLSSocketWrapper::bind(const SocketAddress &address)
 {
-    return NSAPI_ERROR_UNSUPPORTED;
+    return _transport->bind(address);
 }
 
-void TLSSocket::set_blocking(bool blocking)
+void TLSSocketWrapper::set_blocking(bool blocking)
 {
-    _transport->set_blocking(blocking);
+    //TODO_transport->set_blocking(blocking);
 }
 
-void TLSSocket::set_timeout(int timeout)
+void TLSSocketWrapper::set_timeout(int timeout)
 {
     _transport->set_timeout(timeout);
 }
 
-void TLSSocket::sigio(mbed::Callback<void()> func)
+void TLSSocketWrapper::sigio(mbed::Callback<void()> func)
 {
     //TODO
 }
 
-nsapi_error_t TLSSocket::setsockopt(int, int, const void *, unsigned)
+nsapi_error_t TLSSocketWrapper::setsockopt(int level, int optname, const void *optval, unsigned optlen)
 {
-    return NSAPI_ERROR_UNSUPPORTED;
+    return _transport->setsockopt(level, optname, optval, optlen);
 }
 
-nsapi_error_t TLSSocket::getsockopt(int, int, void *, unsigned *)
+nsapi_error_t TLSSocketWrapper::getsockopt(int level, int optname, void *optval, unsigned *optlen)
 {
-    return NSAPI_ERROR_UNSUPPORTED;
+    return _transport->getsockopt(level, optname, optval, optlen);
 }
 
-Socket *TLSSocket::accept(nsapi_error_t *err)
+Socket *TLSSocketWrapper::accept(nsapi_error_t *err)
 {
     if (err) {
         *err = NSAPI_ERROR_UNSUPPORTED;
@@ -404,7 +430,7 @@ Socket *TLSSocket::accept(nsapi_error_t *err)
     return NULL;
 }
 
-nsapi_error_t TLSSocket::listen(int)
+nsapi_error_t TLSSocketWrapper::listen(int)
 {
     return NSAPI_ERROR_UNSUPPORTED;
 }

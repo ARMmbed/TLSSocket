@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-#ifndef _MBED_HTTPS_TLS_SOCKET_H_
-#define _MBED_HTTPS_TLS_SOCKET_H_
+#ifndef _MBED_HTTPS_TLS_SOCKET_WRAPPER_H_
+#define _MBED_HTTPS_TLS_SOCKET_WRAPPER_H_
 
 #include "netsocket/Socket.h"
 
@@ -28,21 +28,22 @@
 
 
 /**
- * \brief TLSSocket a wrapper around TCPSocket for interacting with TLS servers
+ * \brief TLSSocket a wrapper around Socket for interacting with TLS servers
  */
-class TLSSocket : public Socket {
+class TLSSocketWrapper : public Socket {
 public:
-    /* Create a TLSocket
+    /* Create a TLSSocketWrapper
      *
-     *
+     * @param transport    Underlying transport socket to wrap
+     * @param hostname     Hostname of the remote host, used for certificate checking
      */
-    TLSSocket(Socket *transport);
+    TLSSocketWrapper(Socket *transport, const char *hostname);
 
     /** Destroy a socket
      *
      *  Closes socket if the socket is still open
      */
-    ~TLSSocket();
+    virtual ~TLSSocketWrapper();
 
     /** Sets the certification of Root CA.
      *
@@ -65,10 +66,9 @@ public:
      *  Root CA certification must be set by set_ssl_ca_pem() before
      *  call this function.
      *
-     *  @param host     Hostname of the remote host
      *  @return         0 on success, negative error code on failure
      */
-    nsapi_error_t start_handshake(const char* hostname);
+    nsapi_error_t do_handshake();
 
     /** Send data over a TLS socket
      *
@@ -162,4 +162,4 @@ private:
     void tls_free(void);
 };
 
-#endif // _MBED_HTTPS_TLS_SOCKET_H_
+#endif // _MBED_HTTPS_TLS_SOCKET_WRAPPER_H_
