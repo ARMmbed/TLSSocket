@@ -28,7 +28,9 @@ TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname) :
     _transport(transport)
 {
     tls_init();
-    mbedtls_ssl_set_hostname(_ssl, hostname);
+    if (hostname) {
+        set_hostname(hostname);
+    }
     _transport->set_blocking(true);
 }
 
@@ -36,6 +38,11 @@ TLSSocketWrapper::~TLSSocketWrapper() {
     if (_transport) {
         close();
     }
+}
+
+void TLSSocketWrapper::set_hostname(const char *hostname)
+{
+    mbedtls_ssl_set_hostname(_ssl, hostname);
 }
 
 void TLSSocketWrapper::set_root_ca_cert(const char *root_ca_pem) {
@@ -142,7 +149,7 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
     }
 
     /* Start the handshake, the rest will be done in onReceive() */
-    tr_info("Starting TLS handshake with %s", hostname);
+    tr_info("Starting TLS handshake with %s", _ssl->hostname);
 
     do {
         ret = mbedtls_ssl_handshake(_ssl);
@@ -154,7 +161,7 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
     }
 
     /* It also means the handshake is done, time to print info */
-    tr_info("TLS connection to %s established\r\n", hostname);
+    tr_info("TLS connection to %s established\r\n", _ssl->hostname);
 
     /* Prints the server certificate and verify it. */
     const size_t buf_size = 1024;
@@ -181,6 +188,7 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
 nsapi_error_t TLSSocketWrapper::send(const void *data, nsapi_size_t size) {
     int ret = 0;
     unsigned int offset = 0;
+    tr_debug("send %d", size);
     do {
         ret = mbedtls_ssl_write(_ssl,
                                 (const unsigned char *) data + offset,
@@ -299,7 +307,7 @@ int TLSSocketWrapper::ssl_recv(void *ctx, unsigned char *buf, size_t len) {
     if(NSAPI_ERROR_WOULD_BLOCK == recv){
         return MBEDTLS_ERR_SSL_WANT_READ;
     }else if(recv < 0){
-        print_mbedtls_error("Socket recv error %d\n", recv);
+        tr_error("Socket recv error %d", recv);
         return -1;
     }else{
         return recv;
@@ -314,7 +322,7 @@ int TLSSocketWrapper::ssl_send(void *ctx, const unsigned char *buf, size_t len) 
     if(NSAPI_ERROR_WOULD_BLOCK == size){
         return MBEDTLS_ERR_SSL_WANT_WRITE;
     }else if(size < 0){
-        print_mbedtls_error("Socket send error %d\n", size);
+        tr_error("Socket send error %d", size);
         return -1;
     }else{
         return size;
@@ -367,7 +375,7 @@ nsapi_error_t TLSSocketWrapper::close()
     } while (ret != 0 && (ret == MBEDTLS_ERR_SSL_WANT_READ ||
             ret == MBEDTLS_ERR_SSL_WANT_WRITE));
     if (ret) {
-        print_mbedtls_error("mbedtls_ssl_handshake", ret);
+        print_mbedtls_error("mbedtls_ssl_close_notify", ret);
     }
 
     ret2 = _transport->close();

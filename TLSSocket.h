@@ -19,7 +19,7 @@
 #define _MBED_HTTPS_TLS_TCP_SOCKET_H_
 
 #include "netsocket/TCPSocket.h"
-#include "netsocket/TLSSocket.h"
+#include "TLSSocketWrapper.h"
 
 #include "mbedtls/platform.h"
 #include "mbedtls/ssl.h"
@@ -69,6 +69,17 @@ public:
     nsapi_error_t open(S *stack) {
         return open(nsapi_create_stack(stack));
     }
+
+    /** Connects TCP socket to a remote host
+     *
+     *  Initiates a connection to a remote server specified by either
+     *  a domain name or an IP address and a port.
+     *
+     *  @param host     Hostname of the remote host
+     *  @param port     Port of the remote host
+     *  @return         0 on success, negative error code on failure
+     */
+    nsapi_error_t connect(const char *host, uint16_t port);
 
 private:
     TCPSocket tcp_socket;

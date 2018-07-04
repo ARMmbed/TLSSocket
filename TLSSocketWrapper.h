@@ -37,13 +37,15 @@ public:
      * @param transport    Underlying transport socket to wrap
      * @param hostname     Hostname of the remote host, used for certificate checking
      */
-    TLSSocketWrapper(Socket *transport, const char *hostname);
+    TLSSocketWrapper(Socket *transport, const char *hostname = NULL);
 
     /** Destroy a socket
      *
      *  Closes socket if the socket is still open
      */
     virtual ~TLSSocketWrapper();
+
+    void set_hostname(const char *hostname);
 
     /** Sets the certification of Root CA.
      *
