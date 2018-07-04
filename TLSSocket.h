@@ -31,13 +31,13 @@
 /**
  * \brief TLSSocket a wrapper around TCPSocket for interacting with TLS servers
  */
-class TLSTCPSocket : public TLSSocketWrapper {
+class TLSSocket : public TLSSocketWrapper {
 public:
     /** Create an uninitialized socket
      *
      *  Must call open to initialize the socket on a network stack.
      */
-    TLSTCPSocket();
+    TLSSocket();
 
     /** Create a socket on a network interface
      *
@@ -47,7 +47,7 @@ public:
      *  @param stack    Network stack as target for socket
      */
     template <typename S>
-    TLSTCPSocket(S *stack, const char *hostname) : TLSSocketWrapper(&tcp_socket, hostname)
+    TLSSocket(S *stack, const char *hostname = NULL) : TLSSocketWrapper(&tcp_socket, hostname)
     {
         tcp_socket.open(stack);
     }
