@@ -39,26 +39,49 @@ public:
      */
     TLSSocketWrapper(Socket *transport, const char *hostname = NULL);
 
-    /** Destroy a socket
+    /** Destroy a socket wrapper
      *
-     *  Closes socket if the socket is still open
+     *  Closes socket wrapper if the socket wrapper is still open
      */
     virtual ~TLSSocketWrapper();
+
+    /** Specify that transport does not get closed
+     *
+     *  By default, closing or destroying the socket wrapper will close the
+     *  transport socket.
+     *  Calling this will make the wrapper leave the transport socket open.
+     */
+    void keep_transport_open();
 
     void set_hostname(const char *hostname);
 
     /** Sets the certification of Root CA.
      *
-     * @param Root CA Certification in PEM format
+     * @param root_ca Root CA Certificate in any mbed-TLS supported format.
+     * @param len     Length of certificate (including terminating 0 for PEM).
      */
-    void set_root_ca_cert(const char* root_ca_pem);
+    nsapi_error_t set_root_ca_cert(const void *root_ca, size_t len);
 
-    /** Sets server certificate, client certificate, and client private key.
+    /** Sets the certification of Root CA.
+     *
+     * @param root_ca_pem Root CA Certificate in PEM format
+     */
+    nsapi_error_t set_root_ca_cert(const char *root_ca_pem);
+
+    /** Sets client certificate, and client private key.
+     *
+     * @param client_cert Client certification in any mbed-TLS supported format.
+     * @param client_private_key Client private key in PEM format.
+     */
+    nsapi_error_t set_client_cert_key(const void *client_cert_pem, size_t client_cert_len,
+                                      const void *client_private_key_pem, size_t client_private_key_len);
+
+    /** Sets client certificate, and client private key.
      *
      * @param client_cert_pem Client certification in PEM format.
      * @param client_private_key Client private key in PEM format.
      */
-    void set_client_cert_key(const char* client_cert_pem, const char* client_private_key_pem);
+    nsapi_error_t set_client_cert_key(const char *client_cert_pem, const char *client_private_key_pem);
 
     /** Initiates TLS Handshake
      *
@@ -145,9 +168,8 @@ protected:
     static int ssl_send(void *ctx, const unsigned char *buf, size_t len);
 
 private:
-    const char* _ssl_ca_pem;
-    const char* _ssl_cli_pem;
-    const char* _ssl_pk_pem;
+    bool _client_auth;
+    bool _keep_transport_open;
     Socket *_transport;
 
     mbedtls_entropy_context* _entropy;

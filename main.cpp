@@ -77,7 +77,7 @@ int http_get(Socket *socket)
 int main(int argc, char* argv[]) {
     mbed_trace_init();
 
-    printf("HelloTSLSocket, HTTPS example of TLSSocket\n");
+    printf("HelloTLSSocket, HTTPS example of TLSSocket\n");
     printf("\n");
 
     // Open a network interface
@@ -110,14 +110,6 @@ int main(int argc, char* argv[]) {
 
     // Create a TLS socket
     TLSSocketWrapper tls(&tcp, HOST_NAME);
-#else
-    TLSSocket tls(network);
-    // Connect the trasport
-    printf("Connecting to %s\n", HOST_NAME);
-
-    nsapi_error_t err = tls.connect(HOST_NAME, PORT);
-    MBED_ASSERT(err == NSAPI_ERROR_OK);
-#endif
 
     // Set root CA certificate
     tls.set_root_ca_cert(cert);
@@ -128,15 +120,25 @@ int main(int argc, char* argv[]) {
         printf("Failed to connect to the server.");
         return -1;
     }
+#else
+    TLSSocket tls(network);
+
+    // Set root CA certificate
+    nsapi_error_t err = tls.set_root_ca_cert(cert);
+    MBED_ASSERT(err == NSAPI_ERROR_OK);
+
+    printf("Connecting to %s\n", HOST_NAME);
+    err = tls.connect(HOST_NAME, PORT);
+    MBED_ASSERT(err == NSAPI_ERROR_OK);
+#endif
 
     err = http_get(&tls);
     if (err == 0) {
-        printf("HTTP Download succesfull\n");
+        printf("HTTP Download successful\n");
     }
 
     printf("Closing TLS\n");
     tls.close();
-
 
     // Done
     printf("HelloTSLSocket DONE.\n");

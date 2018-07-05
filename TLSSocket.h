@@ -49,7 +49,8 @@ public:
     template <typename S>
     TLSSocket(S *stack, const char *hostname = NULL) : TLSSocketWrapper(&tcp_socket, hostname)
     {
-        tcp_socket.open(stack);
+        nsapi_error_t ret = tcp_socket.open(stack);
+        MBED_ASSERT(ret == NSAPI_ERROR_OK);
     }
 
     /** Opens a socket

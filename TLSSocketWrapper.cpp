@@ -23,15 +23,14 @@
 #include "mbedtls/debug.h"
 
 TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname) :
-    _ssl_ca_pem(NULL),
-    _ssl_cli_pem(NULL),
+    _client_auth(false),
+    _keep_transport_open(false),
     _transport(transport)
 {
     tls_init();
     if (hostname) {
         set_hostname(hostname);
     }
-    _transport->set_blocking(true);
 }
 
 TLSSocketWrapper::~TLSSocketWrapper() {
@@ -45,17 +44,53 @@ void TLSSocketWrapper::set_hostname(const char *hostname)
     mbedtls_ssl_set_hostname(_ssl, hostname);
 }
 
-void TLSSocketWrapper::set_root_ca_cert(const char *root_ca_pem) {
-    // TODO - requires to be static - why not parse now?
-    _ssl_ca_pem = root_ca_pem;
-
+void TLSSocketWrapper::keep_transport_open()
+{
+    _keep_transport_open = true;
 }
 
-void TLSSocketWrapper::set_client_cert_key(const char *client_cert_pem,
-        const char *client_private_key_pem) {
-    // TODO - requires to be static - why not parse now?
-    _ssl_cli_pem = client_cert_pem;
-    _ssl_pk_pem = client_private_key_pem;
+nsapi_error_t TLSSocketWrapper::set_root_ca_cert(const void *root_ca, size_t len)
+{
+    /* Parse CA certification */
+    int ret;
+    if ((ret = mbedtls_x509_crt_parse(_cacert, static_cast<const unsigned char *>(root_ca),
+                        len)) != 0) {
+        print_mbedtls_error("mbedtls_x509_crt_parse", ret);
+        return NSAPI_ERROR_PARAMETER;
+    }
+    return NSAPI_ERROR_OK;
+
+}
+nsapi_error_t TLSSocketWrapper::set_root_ca_cert(const char *root_ca_pem)
+{
+    return set_root_ca_cert(root_ca_pem, strlen(root_ca_pem) + 1);
+}
+
+nsapi_error_t TLSSocketWrapper::set_client_cert_key(const char *client_cert_pem, const char *client_private_key_pem)
+{
+    return set_client_cert_key(client_cert_pem, strlen(client_cert_pem) + 1, client_private_key_pem, strlen(client_private_key_pem) + 1);
+}
+
+nsapi_error_t TLSSocketWrapper::set_client_cert_key(const void *client_cert, size_t client_cert_len,
+        const void *client_private_key_pem, size_t client_private_key_len)
+{
+    int ret;
+    if((NULL != client_cert) && (NULL != client_private_key_pem)) {
+        mbedtls_x509_crt_init(_clicert);
+        if((ret = mbedtls_x509_crt_parse(_clicert, static_cast<const unsigned char *>(client_cert),
+                client_cert_len)) != 0) {
+            print_mbedtls_error("mbedtls_x509_crt_parse", ret);
+            return NSAPI_ERROR_PARAMETER;
+        }
+        mbedtls_pk_init(_pkctx);
+        if((ret = mbedtls_pk_parse_key(_pkctx, static_cast<const unsigned char *>(client_private_key_pem),
+                client_private_key_len, NULL, 0)) != 0) {
+            print_mbedtls_error("mbedtls_pk_parse_key", ret);
+            return NSAPI_ERROR_PARAMETER;
+        }
+        _client_auth = true;
+    }
+    return NSAPI_ERROR_OK;
 }
 
 
@@ -63,6 +98,7 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
     nsapi_error_t _error = 0;
     const char DRBG_PERS[] = "mbed TLS client";
 
+    _transport->set_blocking(true);
     /*
      * Initialize TLS-related stuf.
      */
@@ -73,35 +109,6 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
         print_mbedtls_error("mbedtls_crt_drbg_init", ret);
         _error = ret;
         return _error;
-    }
-
-    /* Parse CA certification */
-
-    if ((ret = mbedtls_x509_crt_parse(_cacert, (unsigned char *)_ssl_ca_pem,
-                        strlen(_ssl_ca_pem) + 1)) != 0) {
-        print_mbedtls_error("mbedtls_x509_crt_parse", ret);
-        _error = ret;
-        return _error;
-    }
-    tr_info("Parsed OK!\n");
-    /* Parse client certification and private key if it exists. */
-    bool isClientAuth = false;
-    if((NULL != _ssl_cli_pem) && (NULL != _ssl_pk_pem)) {
-        mbedtls_x509_crt_init(_clicert);
-        if((ret = mbedtls_x509_crt_parse(_clicert, (unsigned char *)_ssl_cli_pem,
-                strlen(_ssl_cli_pem) + 1)) != 0) {
-            print_mbedtls_error("mbedtls_x509_crt_parse", ret);
-            _error = ret;
-            return _error;
-        }
-    	mbedtls_pk_init(_pkctx);
-        if((ret = mbedtls_pk_parse_key(_pkctx, (unsigned char *)_ssl_pk_pem,
-                strlen(_ssl_pk_pem) + 1, NULL, 0)) != 0) {
-            print_mbedtls_error("mbedtls_pk_parse_key", ret);
-            _error = ret;
-            return _error;
-        }
-        isClientAuth = true;
     }
 
     tr_info("mbedtls_ssl_config_defaults()");
@@ -140,7 +147,7 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
 
     mbedtls_ssl_set_bio(_ssl, this, ssl_send, ssl_recv, NULL );
 
-    if(isClientAuth) {
+    if(_client_auth) {
         if((ret = mbedtls_ssl_conf_own_cert(_ssl_conf, _clicert, _pkctx)) != 0) {
             print_mbedtls_error("mbedtls_ssl_conf_own_cert", ret);
             _error = ret;
@@ -369,7 +376,7 @@ nsapi_error_t TLSSocketWrapper::close()
 {
     tr_info("Closing TLS");
 
-    int ret, ret2;
+    int ret;
     do {
         ret = mbedtls_ssl_close_notify(_ssl);
     } while (ret != 0 && (ret == MBEDTLS_ERR_SSL_WANT_READ ||
@@ -378,9 +385,11 @@ nsapi_error_t TLSSocketWrapper::close()
         print_mbedtls_error("mbedtls_ssl_close_notify", ret);
     }
 
-    ret2 = _transport->close();
-    if (!ret) {
-        ret = ret2;
+    if (!_keep_transport_open) {
+        int ret2 = _transport->close();
+        if (!ret) {
+            ret = ret2;
+        }
     }
 
     _transport = NULL;
