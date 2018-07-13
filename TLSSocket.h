@@ -37,7 +37,7 @@ public:
      *
      *  Must call open to initialize the socket on a network stack.
      */
-    TLSSocket();
+    TLSSocket() : TLSSocketWrapper(&tcp_socket) {}
 
     /** Create a socket on a network interface
      *
@@ -62,7 +62,7 @@ public:
      *  @param stack    Network stack as target for socket
      *  @return         0 on success, negative error code on failure
      */
-    nsapi_error_t open(NetworkStack *stack) {
+    virtual nsapi_error_t open(NetworkStack *stack) {
         return tcp_socket.open(stack);
     }
 
@@ -70,6 +70,8 @@ public:
     nsapi_error_t open(S *stack) {
         return open(nsapi_create_stack(stack));
     }
+
+    using TLSSocketWrapper::connect;
 
     /** Connects TCP socket to a remote host
      *

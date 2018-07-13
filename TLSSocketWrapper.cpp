@@ -25,6 +25,7 @@
 TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname) :
     _client_auth(false),
     _keep_transport_open(false),
+    _handshake_completed(false),
     _transport(transport)
 {
     tls_init();
@@ -188,6 +189,8 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
     }
     delete[] buf;
 
+    _handshake_completed = true;
+
     return 0;
 }
 
@@ -255,7 +258,7 @@ nsapi_size_or_error_t TLSSocketWrapper::recvfrom(SocketAddress *address, void *d
 
 void TLSSocketWrapper::print_mbedtls_error(const char *name, int err) {
     char *buf = new char[128];
-    mbedtls_strerror(err, buf, sizeof (buf));
+    mbedtls_strerror(err, buf, 128);
     tr_err("%s() failed: -0x%04x (%d): %s", name, -err, err, buf);
     delete[] buf;
 }
@@ -376,13 +379,16 @@ nsapi_error_t TLSSocketWrapper::close()
 {
     tr_info("Closing TLS");
 
-    int ret;
-    do {
-        ret = mbedtls_ssl_close_notify(_ssl);
-    } while (ret != 0 && (ret == MBEDTLS_ERR_SSL_WANT_READ ||
-            ret == MBEDTLS_ERR_SSL_WANT_WRITE));
-    if (ret) {
-        print_mbedtls_error("mbedtls_ssl_close_notify", ret);
+    int ret = 0;
+    if (_handshake_completed) {
+        do {
+            ret = mbedtls_ssl_close_notify(_ssl);
+        } while (ret != 0 && (ret == MBEDTLS_ERR_SSL_WANT_READ ||
+                ret == MBEDTLS_ERR_SSL_WANT_WRITE));
+        if (ret) {
+            print_mbedtls_error("mbedtls_ssl_close_notify", ret);
+        }
+        _handshake_completed = false;
     }
 
     if (!_keep_transport_open) {

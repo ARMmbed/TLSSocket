@@ -170,6 +170,7 @@ protected:
 private:
     bool _client_auth;
     bool _keep_transport_open;
+    bool _handshake_completed;
     Socket *_transport;
 
     mbedtls_entropy_context* _entropy;
