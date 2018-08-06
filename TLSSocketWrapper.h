@@ -185,6 +185,8 @@ private:
     void tls_init(void);
     /* Frees memory */
     void tls_free(void);
+    /* Returns true if TLS context is allocated, false if freed */
+    bool is_tls_allocated();
 };
 
 #endif // _MBED_HTTPS_TLS_SOCKET_WRAPPER_H_
