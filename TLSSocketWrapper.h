@@ -121,19 +121,22 @@ public:
      */
     virtual nsapi_size_or_error_t recv(void *data, nsapi_size_t size);
 
-     virtual nsapi_error_t close();
-     virtual nsapi_error_t connect(const SocketAddress &address);
-     virtual nsapi_size_or_error_t sendto(const SocketAddress &address, const void *data, nsapi_size_t size);
-     virtual nsapi_size_or_error_t recvfrom(SocketAddress *address,
-            void *data, nsapi_size_t size);
-     virtual nsapi_error_t bind(const SocketAddress &address);
-     virtual void set_blocking(bool blocking);
-     virtual void set_timeout(int timeout);
-     virtual void sigio(mbed::Callback<void()> func);
-     virtual nsapi_error_t setsockopt(int level, int optname, const void *optval, unsigned optlen);
-     virtual nsapi_error_t getsockopt(int level, int optname, void *optval, unsigned *optlen);
-     virtual Socket *accept(nsapi_error_t *error = NULL);
-     virtual nsapi_error_t listen(int backlog = 1);
+    virtual nsapi_error_t close();
+    virtual nsapi_error_t connect(const SocketAddress &address);
+    virtual nsapi_size_or_error_t sendto(const SocketAddress &address, const void *data, nsapi_size_t size);
+    virtual nsapi_size_or_error_t recvfrom(SocketAddress *address,
+        void *data, nsapi_size_t size);
+    virtual nsapi_error_t bind(const SocketAddress &address);
+    virtual void set_blocking(bool blocking);
+    virtual void set_timeout(int timeout);
+    virtual void sigio(mbed::Callback<void()> func);
+    virtual nsapi_error_t setsockopt(int level, int optname, const void *optval, unsigned optlen);
+    virtual nsapi_error_t getsockopt(int level, int optname, void *optval, unsigned *optlen);
+    virtual Socket *accept(nsapi_error_t *error = NULL);
+    virtual nsapi_error_t listen(int backlog = 1);
+
+    mbedtls_x509_crt *get_own_cert();
+    void set_own_cert(mbedtls_x509_crt *);
 
 protected:
     /**
@@ -168,7 +171,6 @@ protected:
     static int ssl_send(void *ctx, const unsigned char *buf, size_t len);
 
 private:
-    bool _client_auth;
     bool _keep_transport_open;
     bool _handshake_completed;
     Socket *_transport;
@@ -177,6 +179,7 @@ private:
     mbedtls_ctr_drbg_context* _ctr_drbg;
     mbedtls_x509_crt* _cacert;
     mbedtls_x509_crt* _clicert;
+    bool _clicert_allocated;
     mbedtls_pk_context* _pkctx;
     mbedtls_ssl_context* _ssl;
     mbedtls_ssl_config* _ssl_conf;
