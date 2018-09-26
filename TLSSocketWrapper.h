@@ -137,6 +137,8 @@ public:
 
     mbedtls_x509_crt *get_own_cert();
     void set_own_cert(mbedtls_x509_crt *);
+    mbedtls_x509_crt *get_ca_chain();
+    void set_ca_chain(mbedtls_x509_crt *);
 
 protected:
     /**
@@ -178,6 +180,7 @@ private:
     mbedtls_entropy_context* _entropy;
     mbedtls_ctr_drbg_context* _ctr_drbg;
     mbedtls_x509_crt* _cacert;
+    bool _cacert_allocated;
     mbedtls_x509_crt* _clicert;
     bool _clicert_allocated;
     mbedtls_pk_context* _pkctx;
