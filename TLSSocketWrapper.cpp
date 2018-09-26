@@ -80,6 +80,8 @@ nsapi_error_t TLSSocketWrapper::set_root_ca_cert(const void *root_ca, size_t len
         print_mbedtls_error("mbedtls_x509_crt_parse", ret);
         return NSAPI_ERROR_PARAMETER;
     }
+    tr_info("mbedtls_ssl_conf_ca_chain()");
+    mbedtls_ssl_conf_ca_chain(get_ssl_config(), _cacert, NULL);
     return NSAPI_ERROR_OK;
 
 }
@@ -100,22 +102,22 @@ nsapi_error_t TLSSocketWrapper::set_client_cert_key(const void *client_cert, siz
         return NSAPI_ERROR_NO_SOCKET;
     }
     int ret;
-    if((NULL != client_cert) && (NULL != client_private_key_pem)) {
-        _clicert = new mbedtls_x509_crt;
-        _clicert_allocated = true;
-        mbedtls_x509_crt_init(_clicert);
-        if((ret = mbedtls_x509_crt_parse(_clicert, static_cast<const unsigned char *>(client_cert),
-                client_cert_len)) != 0) {
-            print_mbedtls_error("mbedtls_x509_crt_parse", ret);
-            return NSAPI_ERROR_PARAMETER;
-        }
-        mbedtls_pk_init(_pkctx);
-        if((ret = mbedtls_pk_parse_key(_pkctx, static_cast<const unsigned char *>(client_private_key_pem),
-                client_private_key_len, NULL, 0)) != 0) {
-            print_mbedtls_error("mbedtls_pk_parse_key", ret);
-            return NSAPI_ERROR_PARAMETER;
-        }
+    mbedtls_x509_crt *crt = new mbedtls_x509_crt;
+    mbedtls_x509_crt_init(crt);
+    if((ret = mbedtls_x509_crt_parse(crt, static_cast<const unsigned char *>(client_cert),
+            client_cert_len)) != 0) {
+        print_mbedtls_error("mbedtls_x509_crt_parse", ret);
+        return NSAPI_ERROR_PARAMETER;
     }
+    mbedtls_pk_init(_pkctx);
+    if((ret = mbedtls_pk_parse_key(_pkctx, static_cast<const unsigned char *>(client_private_key_pem),
+            client_private_key_len, NULL, 0)) != 0) {
+        print_mbedtls_error("mbedtls_pk_parse_key", ret);
+        return NSAPI_ERROR_PARAMETER;
+    }
+    set_own_cert(crt);
+    _clicert_allocated = true;
+
     return NSAPI_ERROR_OK;
 }
 
@@ -144,57 +146,24 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
         return _error;
     }
 
-    if (!_ssl_conf) {
-        _ssl_conf = new mbedtls_ssl_config;
-        mbedtls_ssl_config_init(_ssl_conf);
-        _ssl_conf_allocated = true;
-
-        tr_info("mbedtls_ssl_config_defaults()");
-        if ((ret = mbedtls_ssl_config_defaults(_ssl_conf,
-                        MBEDTLS_SSL_IS_CLIENT,
-                        MBEDTLS_SSL_TRANSPORT_STREAM,
-                        MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
-            print_mbedtls_error("mbedtls_ssl_config_defaults", ret);
-            _error = ret;
-            return _error;
-        }
-    }
-
-    if (_cacert) {
-        tr_info("mbedtls_ssl_conf_ca_chain()");
-        mbedtls_ssl_conf_ca_chain(_ssl_conf, _cacert, NULL);
-    }
     tr_info("mbedtls_ssl_conf_rng()");
-    mbedtls_ssl_conf_rng(_ssl_conf, mbedtls_ctr_drbg_random, _ctr_drbg);
+    mbedtls_ssl_conf_rng(get_ssl_config(), mbedtls_ctr_drbg_random, _ctr_drbg);
 
-    /* It is possible to disable authentication by passing
-     * MBEDTLS_SSL_VERIFY_NONE in the call to mbedtls_ssl_conf_authmode()
-     */
-    tr_info("mbedtls_ssl_conf_authmode()");
-    mbedtls_ssl_conf_authmode(_ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
 
 #if MBED_CONF_TLS_SOCKET_DEBUG_LEVEL > 0
-    mbedtls_ssl_conf_verify(_ssl_conf, my_verify, NULL);
-    mbedtls_ssl_conf_dbg(_ssl_conf, my_debug, NULL);
+    mbedtls_ssl_conf_verify(get_ssl_config(), my_verify, NULL);
+    mbedtls_ssl_conf_dbg(get_ssl_config(), my_debug, NULL);
     mbedtls_debug_set_threshold(MBED_CONF_TLS_SOCKET_DEBUG_LEVEL);
 #endif
 
     tr_info("mbedtls_ssl_setup()");
-    if ((ret = mbedtls_ssl_setup(_ssl, _ssl_conf)) != 0) {
+    if ((ret = mbedtls_ssl_setup(_ssl, get_ssl_config())) != 0) {
         print_mbedtls_error("mbedtls_ssl_setup", ret);
         _error = ret;
         return _error;
     }
 
     mbedtls_ssl_set_bio(_ssl, this, ssl_send, ssl_recv, NULL );
-
-    if(_clicert) {
-        if((ret = mbedtls_ssl_conf_own_cert(_ssl_conf, _clicert, _pkctx)) != 0) {
-            print_mbedtls_error("mbedtls_ssl_conf_own_cert", ret);
-            _error = ret;
-            return _error;
-        }
-    }
 
     /* Start the handshake, the rest will be done in onReceive() */
     tr_info("Starting TLS handshake with %s", _ssl->hostname);
@@ -424,14 +393,21 @@ mbedtls_x509_crt *TLSSocketWrapper::get_own_cert()
     return _clicert;
 }
 
-void TLSSocketWrapper::set_own_cert(mbedtls_x509_crt *crt)
+int TLSSocketWrapper::set_own_cert(mbedtls_x509_crt *crt)
 {
+    int ret = 0;
     if (_clicert && _clicert_allocated) {
         mbedtls_x509_crt_free(_clicert);
         delete _clicert;
         _clicert_allocated = false;
     }
     _clicert = crt;
+    if (crt) {
+        if((ret = mbedtls_ssl_conf_own_cert(get_ssl_config(), _clicert, _pkctx)) != 0) {
+            print_mbedtls_error("mbedtls_ssl_conf_own_cert", ret);
+        }
+    }
+    return ret;
 }
 
 mbedtls_x509_crt *TLSSocketWrapper::get_ca_chain()
@@ -451,6 +427,28 @@ void TLSSocketWrapper::set_ca_chain(mbedtls_x509_crt *crt)
 
 mbedtls_ssl_config *TLSSocketWrapper::get_ssl_config()
 {
+    if (!_ssl_conf) {
+        int ret;
+        _ssl_conf = new mbedtls_ssl_config;
+        mbedtls_ssl_config_init(_ssl_conf);
+        _ssl_conf_allocated = true;
+
+        tr_info("mbedtls_ssl_config_defaults()");
+        if ((ret = mbedtls_ssl_config_defaults(_ssl_conf,
+                        MBEDTLS_SSL_IS_CLIENT,
+                        MBEDTLS_SSL_TRANSPORT_STREAM,
+                        MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
+            print_mbedtls_error("mbedtls_ssl_config_defaults", ret);
+            set_ssl_config(NULL);
+            //TODO: Change to MBED_ERROR
+            return NULL;
+        }
+        /* It is possible to disable authentication by passing
+         * MBEDTLS_SSL_VERIFY_NONE in the call to mbedtls_ssl_conf_authmode()
+         */
+        tr_info("mbedtls_ssl_conf_authmode()");
+        mbedtls_ssl_conf_authmode(get_ssl_config(), MBEDTLS_SSL_VERIFY_REQUIRED);
+    }
     return _ssl_conf;
 }
 

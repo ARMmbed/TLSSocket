@@ -136,7 +136,7 @@ public:
     virtual nsapi_error_t listen(int backlog = 1);
 
     mbedtls_x509_crt *get_own_cert();
-    void set_own_cert(mbedtls_x509_crt *);
+    int set_own_cert(mbedtls_x509_crt *);
     mbedtls_x509_crt *get_ca_chain();
     void set_ca_chain(mbedtls_x509_crt *);
     mbedtls_ssl_config *get_ssl_config();
