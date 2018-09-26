@@ -34,7 +34,8 @@ TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname) :
     _clicert_allocated(false),
     _pkctx(NULL),
     _ssl(NULL),
-    _ssl_conf(NULL)
+    _ssl_conf(NULL),
+    _ssl_conf_allocated(NULL)
 {
     tls_init();
     if (hostname) {
@@ -143,14 +144,20 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
         return _error;
     }
 
-    tr_info("mbedtls_ssl_config_defaults()");
-    if ((ret = mbedtls_ssl_config_defaults(_ssl_conf,
-                    MBEDTLS_SSL_IS_CLIENT,
-                    MBEDTLS_SSL_TRANSPORT_STREAM,
-                    MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
-        print_mbedtls_error("mbedtls_ssl_config_defaults", ret);
-        _error = ret;
-        return _error;
+    if (!_ssl_conf) {
+        _ssl_conf = new mbedtls_ssl_config;
+        mbedtls_ssl_config_init(_ssl_conf);
+        _ssl_conf_allocated = true;
+
+        tr_info("mbedtls_ssl_config_defaults()");
+        if ((ret = mbedtls_ssl_config_defaults(_ssl_conf,
+                        MBEDTLS_SSL_IS_CLIENT,
+                        MBEDTLS_SSL_TRANSPORT_STREAM,
+                        MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
+            print_mbedtls_error("mbedtls_ssl_config_defaults", ret);
+            _error = ret;
+            return _error;
+        }
     }
 
     if (_cacert) {
@@ -384,30 +391,26 @@ void TLSSocketWrapper::tls_init() {
     _ctr_drbg = new mbedtls_ctr_drbg_context;
     _pkctx = new mbedtls_pk_context;
     _ssl = new mbedtls_ssl_context;
-    _ssl_conf = new mbedtls_ssl_config;
 
     mbedtls_entropy_init(_entropy);
     mbedtls_ctr_drbg_init(_ctr_drbg);
     mbedtls_ssl_init(_ssl);
-    mbedtls_ssl_config_init(_ssl_conf);
     mbedtls_pk_init(_pkctx);
 }
 
 void TLSSocketWrapper::tls_free() {
     mbedtls_entropy_free(_entropy);
     mbedtls_ctr_drbg_free(_ctr_drbg);
-
     mbedtls_ssl_free(_ssl);
-    mbedtls_ssl_config_free(_ssl_conf);
     mbedtls_pk_free(_pkctx);
 
     set_own_cert(NULL);
     set_ca_chain(NULL);
+    set_ssl_config(NULL);
 
     delete _entropy;
     delete _ctr_drbg;
     delete _ssl;
-    delete _ssl_conf;
     delete _pkctx;
     _ssl = NULL; // Marks that TLS context is freed
 }
@@ -444,6 +447,21 @@ void TLSSocketWrapper::set_ca_chain(mbedtls_x509_crt *crt)
         _cacert_allocated = false;
     }
     _cacert = crt;
+}
+
+mbedtls_ssl_config *TLSSocketWrapper::get_ssl_config()
+{
+    return _ssl_conf;
+}
+
+void TLSSocketWrapper::set_ssl_config(mbedtls_ssl_config *conf)
+{
+    if (_ssl_conf && _ssl_conf_allocated) {
+        mbedtls_ssl_config_free(_ssl_conf);
+        delete _ssl_conf;
+        _ssl_conf_allocated = false;
+    }
+    _ssl_conf = conf;
 }
 
 nsapi_error_t TLSSocketWrapper::close()

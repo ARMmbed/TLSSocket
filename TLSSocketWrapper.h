@@ -139,6 +139,8 @@ public:
     void set_own_cert(mbedtls_x509_crt *);
     mbedtls_x509_crt *get_ca_chain();
     void set_ca_chain(mbedtls_x509_crt *);
+    mbedtls_ssl_config *get_ssl_config();
+    void set_ssl_config(mbedtls_ssl_config *);
 
 protected:
     /**
@@ -186,6 +188,7 @@ private:
     mbedtls_pk_context* _pkctx;
     mbedtls_ssl_context* _ssl;
     mbedtls_ssl_config* _ssl_conf;
+    bool _ssl_conf_allocated;
 
     /* Allocates required memory */
     void tls_init(void);
