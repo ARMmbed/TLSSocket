@@ -175,20 +175,22 @@ protected:
     static int ssl_send(void *ctx, const unsigned char *buf, size_t len);
 
 private:
-    bool _keep_transport_open;
-    bool _handshake_completed;
-    Socket *_transport;
-
-    mbedtls_entropy_context _entropy;
-    mbedtls_ctr_drbg_context _ctr_drbg;
-    mbedtls_x509_crt* _cacert;
-    bool _cacert_allocated;
-    mbedtls_x509_crt* _clicert;
-    bool _clicert_allocated;
-    mbedtls_pk_context _pkctx;
     mbedtls_ssl_context _ssl;
+    mbedtls_pk_context _pkctx;
+    mbedtls_ctr_drbg_context _ctr_drbg;
+    mbedtls_entropy_context _entropy;
+
+    Socket *_transport;
+    mbedtls_x509_crt* _cacert;
+    mbedtls_x509_crt* _clicert;
     mbedtls_ssl_config* _ssl_conf;
-    bool _ssl_conf_allocated;
+
+    bool _keep_transport_open:1;
+    bool _handshake_completed:1;
+    bool _cacert_allocated:1;
+    bool _clicert_allocated:1;
+    bool _ssl_conf_allocated:1;
+
 };
 
 #endif // _MBED_HTTPS_TLS_SOCKET_WRAPPER_H_

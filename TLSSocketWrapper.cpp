@@ -23,15 +23,15 @@
 #include "mbedtls/debug.h"
 
 TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname) :
-    _keep_transport_open(false),
-    _handshake_completed(false),
     _transport(transport),
     _cacert(NULL),
-    _cacert_allocated(false),
     _clicert(NULL),
-    _clicert_allocated(false),
     _ssl_conf(NULL),
-    _ssl_conf_allocated(NULL)
+    _keep_transport_open(false),
+    _handshake_completed(false),
+    _cacert_allocated(false),
+    _clicert_allocated(false),
+    _ssl_conf_allocated(false)
 {
     mbedtls_entropy_init(&_entropy);
     mbedtls_ctr_drbg_init(&_ctr_drbg);
