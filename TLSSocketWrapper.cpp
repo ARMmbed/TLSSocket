@@ -26,18 +26,18 @@ TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname) :
     _keep_transport_open(false),
     _handshake_completed(false),
     _transport(transport),
-    _entropy(NULL),
-    _ctr_drbg(NULL),
     _cacert(NULL),
     _cacert_allocated(false),
     _clicert(NULL),
     _clicert_allocated(false),
-    _pkctx(NULL),
-    _ssl(NULL),
     _ssl_conf(NULL),
     _ssl_conf_allocated(NULL)
 {
-    tls_init();
+    mbedtls_entropy_init(&_entropy);
+    mbedtls_ctr_drbg_init(&_ctr_drbg);
+    mbedtls_ssl_init(&_ssl);
+    mbedtls_pk_init(&_pkctx);
+
     if (hostname) {
         set_hostname(hostname);
     }
@@ -47,13 +47,19 @@ TLSSocketWrapper::~TLSSocketWrapper() {
     if (_transport) {
         close();
     }
+    mbedtls_entropy_free(&_entropy);
+    mbedtls_ctr_drbg_free(&_ctr_drbg);
+    mbedtls_ssl_free(&_ssl);
+    mbedtls_pk_free(&_pkctx);
+
+    set_own_cert(NULL);
+    set_ca_chain(NULL);
+    set_ssl_config(NULL);
 }
 
 void TLSSocketWrapper::set_hostname(const char *hostname)
 {
-    if (is_tls_allocated()) {
-        mbedtls_ssl_set_hostname(_ssl, hostname);
-    }
+    mbedtls_ssl_set_hostname(&_ssl, hostname);
 }
 
 void TLSSocketWrapper::keep_transport_open()
@@ -63,10 +69,6 @@ void TLSSocketWrapper::keep_transport_open()
 
 nsapi_error_t TLSSocketWrapper::set_root_ca_cert(const void *root_ca, size_t len)
 {
-    if (!is_tls_allocated()) {
-        return NSAPI_ERROR_NO_SOCKET;
-    }
-
     if (!_cacert) {
         _cacert = new mbedtls_x509_crt;
         mbedtls_x509_crt_init(_cacert);
@@ -98,9 +100,6 @@ nsapi_error_t TLSSocketWrapper::set_client_cert_key(const char *client_cert_pem,
 nsapi_error_t TLSSocketWrapper::set_client_cert_key(const void *client_cert, size_t client_cert_len,
         const void *client_private_key_pem, size_t client_private_key_len)
 {
-    if (!is_tls_allocated()) {
-        return NSAPI_ERROR_NO_SOCKET;
-    }
     int ret;
     mbedtls_x509_crt *crt = new mbedtls_x509_crt;
     mbedtls_x509_crt_init(crt);
@@ -109,8 +108,8 @@ nsapi_error_t TLSSocketWrapper::set_client_cert_key(const void *client_cert, siz
         print_mbedtls_error("mbedtls_x509_crt_parse", ret);
         return NSAPI_ERROR_PARAMETER;
     }
-    mbedtls_pk_init(_pkctx);
-    if((ret = mbedtls_pk_parse_key(_pkctx, static_cast<const unsigned char *>(client_private_key_pem),
+    mbedtls_pk_init(&_pkctx);
+    if((ret = mbedtls_pk_parse_key(&_pkctx, static_cast<const unsigned char *>(client_private_key_pem),
             client_private_key_len, NULL, 0)) != 0) {
         print_mbedtls_error("mbedtls_pk_parse_key", ret);
         return NSAPI_ERROR_PARAMETER;
@@ -129,16 +128,13 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
     if (!_transport) {
         return NSAPI_ERROR_NO_SOCKET;
     }
-    if (!is_tls_allocated()) {
-        return NSAPI_ERROR_NO_SOCKET;
-    }
 
     _transport->set_blocking(true);
     /*
      * Initialize TLS-related stuf.
      */
     int ret;
-    if ((ret = mbedtls_ctr_drbg_seed(_ctr_drbg, mbedtls_entropy_func, _entropy,
+    if ((ret = mbedtls_ctr_drbg_seed(&_ctr_drbg, mbedtls_entropy_func, &_entropy,
                         (const unsigned char *) DRBG_PERS,
                         sizeof (DRBG_PERS))) != 0) {
         print_mbedtls_error("mbedtls_crt_drbg_init", ret);
@@ -147,7 +143,7 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
     }
 
     tr_info("mbedtls_ssl_conf_rng()");
-    mbedtls_ssl_conf_rng(get_ssl_config(), mbedtls_ctr_drbg_random, _ctr_drbg);
+    mbedtls_ssl_conf_rng(get_ssl_config(), mbedtls_ctr_drbg_random, &_ctr_drbg);
 
 
 #if MBED_CONF_TLS_SOCKET_DEBUG_LEVEL > 0
@@ -157,19 +153,19 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
 #endif
 
     tr_info("mbedtls_ssl_setup()");
-    if ((ret = mbedtls_ssl_setup(_ssl, get_ssl_config())) != 0) {
+    if ((ret = mbedtls_ssl_setup(&_ssl, get_ssl_config())) != 0) {
         print_mbedtls_error("mbedtls_ssl_setup", ret);
         _error = ret;
         return _error;
     }
 
-    mbedtls_ssl_set_bio(_ssl, this, ssl_send, ssl_recv, NULL );
+    mbedtls_ssl_set_bio(&_ssl, this, ssl_send, ssl_recv, NULL );
 
     /* Start the handshake, the rest will be done in onReceive() */
-    tr_info("Starting TLS handshake with %s", _ssl->hostname);
+    tr_info("Starting TLS handshake with %s", _ssl.hostname);
 
     do {
-        ret = mbedtls_ssl_handshake(_ssl);
+        ret = mbedtls_ssl_handshake(&_ssl);
     } while (ret != 0 && (ret == MBEDTLS_ERR_SSL_WANT_READ ||
             ret == MBEDTLS_ERR_SSL_WANT_WRITE));
     if (ret < 0) {
@@ -178,16 +174,16 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
     }
 
     /* It also means the handshake is done, time to print info */
-    tr_info("TLS connection to %s established\r\n", _ssl->hostname);
+    tr_info("TLS connection to %s established\r\n", _ssl.hostname);
 
     /* Prints the server certificate and verify it. */
     const size_t buf_size = 1024;
     char* buf = new char[buf_size];
     mbedtls_x509_crt_info(buf, buf_size, "\r    ",
-                    mbedtls_ssl_get_peer_cert(_ssl));
+                    mbedtls_ssl_get_peer_cert(&_ssl));
     tr_debug("Server certificate:\r\n%s\r\n", buf);
 
-    uint32_t flags = mbedtls_ssl_get_verify_result(_ssl);
+    uint32_t flags = mbedtls_ssl_get_verify_result(&_ssl);
     if( flags != 0 ) {
         /* Verification failed. */
         mbedtls_x509_crt_verify_info(buf, buf_size, "\r  ! ", flags);
@@ -207,12 +203,12 @@ nsapi_error_t TLSSocketWrapper::do_handshake() {
 nsapi_error_t TLSSocketWrapper::send(const void *data, nsapi_size_t size) {
     int ret;
 
-    if (!is_tls_allocated()) {
+    if (!_transport) {
         return NSAPI_ERROR_NO_SOCKET;
     }
 
     tr_debug("send %d", size);
-    ret = mbedtls_ssl_write(_ssl, (const unsigned char *) data, size);
+    ret = mbedtls_ssl_write(&_ssl, (const unsigned char *) data, size);
 
     if (ret == MBEDTLS_ERR_SSL_WANT_WRITE ||
         ret == MBEDTLS_ERR_SSL_WANT_READ) {
@@ -234,11 +230,11 @@ nsapi_size_or_error_t TLSSocketWrapper::sendto(const SocketAddress &, const void
 nsapi_size_or_error_t TLSSocketWrapper::recv(void *data, nsapi_size_t size) {
     int ret;
 
-    if (!is_tls_allocated()) {
+    if (!_transport) {
         return NSAPI_ERROR_NO_SOCKET;
     }
 
-    ret = mbedtls_ssl_read(_ssl, (unsigned char *) data, size);
+    ret = mbedtls_ssl_read(&_ssl, (unsigned char *) data, size);
 
     if (ret == MBEDTLS_ERR_SSL_WANT_WRITE ||
         ret == MBEDTLS_ERR_SSL_WANT_READ) {
@@ -355,38 +351,6 @@ int TLSSocketWrapper::ssl_send(void *ctx, const unsigned char *buf, size_t len) 
     return size;
  }
 
-void TLSSocketWrapper::tls_init() {
-    _entropy = new mbedtls_entropy_context;
-    _ctr_drbg = new mbedtls_ctr_drbg_context;
-    _pkctx = new mbedtls_pk_context;
-    _ssl = new mbedtls_ssl_context;
-
-    mbedtls_entropy_init(_entropy);
-    mbedtls_ctr_drbg_init(_ctr_drbg);
-    mbedtls_ssl_init(_ssl);
-    mbedtls_pk_init(_pkctx);
-}
-
-void TLSSocketWrapper::tls_free() {
-    mbedtls_entropy_free(_entropy);
-    mbedtls_ctr_drbg_free(_ctr_drbg);
-    mbedtls_ssl_free(_ssl);
-    mbedtls_pk_free(_pkctx);
-
-    set_own_cert(NULL);
-    set_ca_chain(NULL);
-    set_ssl_config(NULL);
-
-    delete _entropy;
-    delete _ctr_drbg;
-    delete _ssl;
-    delete _pkctx;
-    _ssl = NULL; // Marks that TLS context is freed
-}
-
-bool TLSSocketWrapper::is_tls_allocated() {
-    return _ssl != NULL;
-}
 
 mbedtls_x509_crt *TLSSocketWrapper::get_own_cert()
 {
@@ -403,7 +367,7 @@ int TLSSocketWrapper::set_own_cert(mbedtls_x509_crt *crt)
     }
     _clicert = crt;
     if (crt) {
-        if((ret = mbedtls_ssl_conf_own_cert(get_ssl_config(), _clicert, _pkctx)) != 0) {
+        if((ret = mbedtls_ssl_conf_own_cert(get_ssl_config(), _clicert, &_pkctx)) != 0) {
             print_mbedtls_error("mbedtls_ssl_conf_own_cert", ret);
         }
     }
@@ -467,16 +431,13 @@ nsapi_error_t TLSSocketWrapper::close()
     if (!_transport) {
         return NSAPI_ERROR_NO_SOCKET;
     }
-    if (!is_tls_allocated()) {
-        return NSAPI_ERROR_NO_SOCKET;
-    }
 
     tr_info("Closing TLS");
 
     int ret = 0;
     if (_handshake_completed) {
         _transport->set_blocking(true);
-        ret = mbedtls_ssl_close_notify(_ssl);
+        ret = mbedtls_ssl_close_notify(&_ssl);
         if (ret) {
             print_mbedtls_error("mbedtls_ssl_close_notify", ret);
         }
@@ -491,8 +452,6 @@ nsapi_error_t TLSSocketWrapper::close()
     }
 
     _transport = NULL;
-
-    tls_free();
 
     return ret;
 }
