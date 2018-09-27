@@ -69,24 +69,24 @@ void TLSSocketWrapper::keep_transport_open()
 
 nsapi_error_t TLSSocketWrapper::set_root_ca_cert(const void *root_ca, size_t len)
 {
-    if (!_cacert) {
-        _cacert = new mbedtls_x509_crt;
-        mbedtls_x509_crt_init(_cacert);
-        _cacert_allocated = true;
+    mbedtls_x509_crt *crt;
+    if (!crt) {
+        crt = new mbedtls_x509_crt;
+        mbedtls_x509_crt_init(crt);
     }
 
     /* Parse CA certification */
     int ret;
-    if ((ret = mbedtls_x509_crt_parse(_cacert, static_cast<const unsigned char *>(root_ca),
+    if ((ret = mbedtls_x509_crt_parse(crt, static_cast<const unsigned char *>(root_ca),
                         len)) != 0) {
         print_mbedtls_error("mbedtls_x509_crt_parse", ret);
         return NSAPI_ERROR_PARAMETER;
     }
-    tr_info("mbedtls_ssl_conf_ca_chain()");
-    mbedtls_ssl_conf_ca_chain(get_ssl_config(), _cacert, NULL);
+    set_ca_chain(crt);
+    _cacert_allocated = true;
     return NSAPI_ERROR_OK;
-
 }
+
 nsapi_error_t TLSSocketWrapper::set_root_ca_cert(const char *root_ca_pem)
 {
     return set_root_ca_cert(root_ca_pem, strlen(root_ca_pem) + 1);
@@ -387,6 +387,8 @@ void TLSSocketWrapper::set_ca_chain(mbedtls_x509_crt *crt)
         _cacert_allocated = false;
     }
     _cacert = crt;
+    tr_info("mbedtls_ssl_conf_ca_chain()");
+    mbedtls_ssl_conf_ca_chain(get_ssl_config(), _cacert, NULL);
 }
 
 mbedtls_ssl_config *TLSSocketWrapper::get_ssl_config()
