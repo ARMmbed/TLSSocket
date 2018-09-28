@@ -32,26 +32,25 @@
  */
 class TLSSocketWrapper : public Socket {
 public:
+    enum control_transport {
+        TRANSPORT_KEEP,
+        TRANSPORT_CONNECT_AND_CLOSE,
+        TRANSPORT_CONNECT,
+        TRANSPORT_CLOSE,
+    };
+
     /* Create a TLSSocketWrapper
      *
      * @param transport    Underlying transport socket to wrap
      * @param hostname     Hostname of the remote host, used for certificate checking
      */
-    TLSSocketWrapper(Socket *transport, const char *hostname = NULL);
+    TLSSocketWrapper(Socket *transport, const char *hostname = NULL, control_transport control = TRANSPORT_CONNECT_AND_CLOSE);
 
     /** Destroy a socket wrapper
      *
      *  Closes socket wrapper if the socket wrapper is still open
      */
     virtual ~TLSSocketWrapper();
-
-    /** Specify that transport does not get closed
-     *
-     *  By default, closing or destroying the socket wrapper will close the
-     *  transport socket.
-     *  Calling this will make the wrapper leave the transport socket open.
-     */
-    void keep_transport_open();
 
     /** Set hostname.
      *
@@ -191,7 +190,8 @@ private:
     mbedtls_x509_crt* _clicert;
     mbedtls_ssl_config* _ssl_conf;
 
-    bool _keep_transport_open:1;
+    bool _connect_transport:1;
+    bool _close_transport:1;
     bool _handshake_completed:1;
     bool _cacert_allocated:1;
     bool _clicert_allocated:1;

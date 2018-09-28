@@ -22,12 +22,13 @@
 #include "mbed-trace/mbed_trace.h"
 #include "mbedtls/debug.h"
 
-TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname) :
+TLSSocketWrapper::TLSSocketWrapper(Socket *transport, const char *hostname, control_transport control) :
     _transport(transport),
     _cacert(NULL),
     _clicert(NULL),
     _ssl_conf(NULL),
-    _keep_transport_open(false),
+    _connect_transport(control==TRANSPORT_CONNECT || control==TRANSPORT_CONNECT_AND_CLOSE),
+    _close_transport(control==TRANSPORT_CLOSE || control==TRANSPORT_CONNECT_AND_CLOSE),
     _handshake_completed(false),
     _cacert_allocated(false),
     _clicert_allocated(false),
@@ -62,15 +63,15 @@ void TLSSocketWrapper::set_hostname(const char *hostname)
     mbedtls_ssl_set_hostname(&_ssl, hostname);
 }
 
-void TLSSocketWrapper::keep_transport_open()
-{
-    _keep_transport_open = true;
-}
-
 nsapi_error_t TLSSocketWrapper::set_root_ca_cert(const void *root_ca, size_t len)
 {
     mbedtls_x509_crt *crt;
-    crt = new mbedtls_x509_crt;
+
+    crt = new (std::nothrow) mbedtls_x509_crt;
+    if (!crt) {
+        return NSAPI_ERROR_NO_MEMORY;
+    }
+
     mbedtls_x509_crt_init(crt);
 
     /* Parse CA certification */
@@ -444,7 +445,7 @@ nsapi_error_t TLSSocketWrapper::close()
         _handshake_completed = false;
     }
 
-    if (!_keep_transport_open) {
+    if (_close_transport) {
         int ret2 = _transport->close();
         if (!ret) {
             ret = ret2;
@@ -462,7 +463,7 @@ nsapi_error_t TLSSocketWrapper::connect(const SocketAddress &address)
         return NSAPI_ERROR_NO_SOCKET;
     }
 
-    if (!_keep_transport_open) {
+    if (_connect_transport) {
         nsapi_error_t ret = _transport->connect(address);
         if (ret) {
             return ret;

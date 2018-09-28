@@ -19,7 +19,7 @@ socket->connect(HOST_NAME, PORT)
 socket->send(data, size);
 ```
 
-Please note that internal TLS structures require over 1 kB of RAM, so each TLSSocket should be allocated from heap using `new` command, instead of using stack.
+Please note that internal TLS structures require over 1 kB of RAM, so each TLSSocket should be allocated from heap using `new` command, instead of using stack or statically allocating it.
 
 
 ### Design
@@ -40,7 +40,7 @@ connection.connect(SERVER, PORT);
 connection.send("STARTTLS\r\n", 10);
 
 // Wrap the TCP into TLS object
-TLSSocketWrapper tls = new TLSSocketWrapper(connection, SERVER);
+TLSSocketWrapper tls = new TLSSocketWrapper(connection, SERVER, TLSSocketWrapper::TRANSPORT_CLOSE);
 
 // Initiate TLS handshake
 tls.connect();
@@ -100,14 +100,14 @@ virtual nsapi_error_t close();
 ```
 
 Destroys the memory allocated by TLS library.
-Alternatively also closes the transport socket, unless `TLSSocketWrapper::keep_transport_open()` has been called earlier.
+Also closes the transport socket, unless [transport mode](#transport-modes) is set to `TRANSPORT_KEEP` or `TRANSPORT_CONNECT`.
 
 
 ```
 virtual nsapi_error_t connect(const SocketAddress &address);
 ```
 
-Initiates the TCP connection and continues to TLS hanshake.
+Initiates the TCP connection and continues to TLS hanshake. If [transport mode](#transport-modes) is either `TRANSPORT_KEEP` or `TRANSPORT_CLOSE`, TCP is assumed to be open and state directly goes into TLS handshake.
 This is currently forced to blocking mode. After succesfully connecting, you can set it to non-blockin mode.
 
 ```
@@ -140,6 +140,20 @@ virtual Socket *accept(nsapi_error_t *error = NULL);
 virtual nsapi_error_t listen(int backlog = 1);
 ```
 These are returning `NSAPI_ERROR_UNSUPPORTED` as TLS socket cannot be set to listening mode.
+
+#### Transport modes
+
+`TLSSocketWrapper` has four modes that are given in the constructor and affect how the transport Socket is used in connection and closing phases.
+
+|Mode|Behaviour on trasport socket|
+|----|----------------------------|
+|TRANSPORT_KEEP | Keep the transport as it is. Does not call `connect()` or `close()` methods. |
+|TRANSPORT_CONNECT_AND_CLOSE | Both `connect()` and `close()` are called. (default) |
+|TRANSPORT_CONNECT | Call `connect()` but do not close the connection when finished.  |
+|TRANSPORT_CLOSE | Call `close()` when connection is finished. |
+
+Default mode is `TRANSPORT_CONNECT_AND_CLOSE`.
+
 
 #### Advanced usage: using internal Mbed TLS structures
 
