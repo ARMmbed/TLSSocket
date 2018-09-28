@@ -53,6 +53,12 @@ public:
      */
     void keep_transport_open();
 
+    /** Set hostname.
+     *
+     * TLSSocket requires hostname that is used to verify the certificate.
+     * If hostname is not given in constructor, this function must be used before
+     * starting the TLS handshake.
+     */
     void set_hostname(const char *hostname);
 
     /** Sets the certification of Root CA.
@@ -83,18 +89,6 @@ public:
      */
     nsapi_error_t set_client_cert_key(const char *client_cert_pem, const char *client_private_key_pem);
 
-    /** Initiates TLS Handshake
-     *
-     *  Initiates a TLS hanshake to a remote speer
-     *  Underlying transport socket should already be connected
-     *
-     *  Root CA certification must be set by set_ssl_ca_pem() before
-     *  call this function.
-     *
-     *  @return         0 on success, negative error code on failure
-     */
-    nsapi_error_t do_handshake();
-
     /** Send data over a TLS socket
      *
      *  The socket must be connected to a remote host. Returns the number of
@@ -122,7 +116,7 @@ public:
     virtual nsapi_size_or_error_t recv(void *data, nsapi_size_t size);
 
     virtual nsapi_error_t close();
-    virtual nsapi_error_t connect(const SocketAddress &address);
+    virtual nsapi_error_t connect(const SocketAddress &address = SocketAddress());
     virtual nsapi_size_or_error_t sendto(const SocketAddress &address, const void *data, nsapi_size_t size);
     virtual nsapi_size_or_error_t recvfrom(SocketAddress *address,
         void *data, nsapi_size_t size);
@@ -147,6 +141,18 @@ protected:
      * Helper for pretty-printing mbed TLS error codes
      */
     static void print_mbedtls_error(const char *name, int err);
+
+    /** Initiates TLS Handshake
+     *
+     *  Initiates a TLS hanshake to a remote speer
+     *  Underlying transport socket should already be connected
+     *
+     *  Root CA certification must be set by set_ssl_ca_pem() before
+     *  call this function.
+     *
+     *  @return         0 on success, negative error code on failure
+     */
+    nsapi_error_t do_handshake();
 
 #if MBED_CONF_TLS_SOCKET_DEBUG_LEVEL > 0
     /**
