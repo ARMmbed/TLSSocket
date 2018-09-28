@@ -70,10 +70,8 @@ void TLSSocketWrapper::keep_transport_open()
 nsapi_error_t TLSSocketWrapper::set_root_ca_cert(const void *root_ca, size_t len)
 {
     mbedtls_x509_crt *crt;
-    if (!crt) {
-        crt = new mbedtls_x509_crt;
-        mbedtls_x509_crt_init(crt);
-    }
+    crt = new mbedtls_x509_crt;
+    mbedtls_x509_crt_init(crt);
 
     /* Parse CA certification */
     int ret;
@@ -463,10 +461,12 @@ nsapi_error_t TLSSocketWrapper::connect(const SocketAddress &address)
     if (!_transport) {
         return NSAPI_ERROR_NO_SOCKET;
     }
-    //TODO: We could initiate the hanshake here, if there would be separate function call to set the target hostname
-    nsapi_error_t ret = _transport->connect(address);
-    if (ret) {
-        return ret;
+
+    if (!_keep_transport_open) {
+        nsapi_error_t ret = _transport->connect(address);
+        if (ret) {
+            return ret;
+        }
     }
     return do_handshake();
 }
