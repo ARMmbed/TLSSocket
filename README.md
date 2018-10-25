@@ -1,3 +1,11 @@
+## DEPRECATED
+
+This repository is deprecated. The code has been integrated into Mbed OS, so no developent will happen here anymore.
+
+`TLSSocket` is now in Mbed OS master, and will be published in Mbed OS 5.11
+
+
+
 ## TLSSocket
 
 TLSSocket provides the ability to easily secure any stream based socket connection, for example TCP stream. This allows existing protocol libraries to be used through secure connections.
